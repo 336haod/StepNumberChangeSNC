@@ -5,13 +5,16 @@ from random import randint
 
 
 # ======================== 默认配置 ========================
-DEFAULT_USER = "email"
-DEFAULT_PASSWORD = "pwd"
-DEFAULT_MIN_STEPS = 17509
+DEFAULT_USER = ""
+DEFAULT_PASSWORD = ""
+DEFAULT_MIN_STEPS = 17760
 DEFAULT_MAX_STEPS = 23659
 
 # Token 缓存文件（云函数环境下 /tmp/ 是唯一可写目录）
 TOKEN_FILE = "/tmp/token.txt"
+
+# Server酱 SendKey（微信推送通知，也支持环境变量 MI_SENDKEY）
+SERVER_CHAN_SENDKEY = ""
 
 
 # ======================== Token 缓存 ========================
@@ -139,6 +142,30 @@ def get_time():
         return str(int(time.time() * 1000))
 
 
+# ======================== Server酱推送 ========================
+def send_server_chan(title, content, sendkey=None):
+    """
+    通过 Server酱 推送消息到微信。
+    sendkey 为空时自动从环境变量 MI_SENDKEY 或默认配置读取。
+    """
+    if sendkey is None:
+        sendkey = os.environ.get("MI_SENDKEY") or SERVER_CHAN_SENDKEY
+    if not sendkey:
+        print("------ Server酱 SendKey 未配置，跳过推送 ------")
+        return
+    try:
+        url = f"https://sctapi.ftqq.com/{sendkey}.send"
+        data = {"title": title, "desp": content}
+        r = requests.post(url, data=data, timeout=10)
+        resp = r.json()
+        if resp.get("code") == 0:
+            print(f"Server酱推送成功: {title}")
+        else:
+            print(f"Server酱推送失败: {resp}")
+    except Exception as e:
+        print(f"Server酱推送异常: {e}")
+
+
 # ======================== 主逻辑 ========================
 def main(uu, pwd, min_steps=None, max_steps=None):
     if min_steps is None:
@@ -180,6 +207,25 @@ def main(uu, pwd, min_steps=None, max_steps=None):
     res0 = requests.post(url0, data=data0, headers=headers0, timeout=15)
 
     res0 = res0.json()
+    step_code = res0.get("code", -1)
+    step_msg = res0.get("message", "unknown")
+
+    # 判断成功/失败
+    if step_msg == "success" or step_code == 0:
+        status = "刷新成功"
+    else:
+        status = f"刷新失败 (code={step_code})"
+
+    # 构建推送内容
+    push_title = "步数刷新成功，请捐赠步数"
+    push_content = f"""今日步数：{steps}
+
+状态：{status}
+服务器返回：{json.dumps(res0, ensure_ascii=False)}"""
+
+    # 发送 Server酱 推送
+    send_server_chan(push_title, push_content)
+
     result = f"账号：{uu}\n步数：{steps}\n{res0}\n"
     print(result)
     return result
